@@ -24,7 +24,6 @@ HTML_FORM = """
   <title>PDF Generator</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    // Enable dark mode with Tailwind
     tailwind.config = { darkMode: 'class' };
 
     function updateTotal() {
@@ -40,20 +39,17 @@ HTML_FORM = """
         document.querySelector('[name="total"]').value = total.toFixed(2);
     }
 
-    // Auto-fill today's date
     document.addEventListener("DOMContentLoaded", () => {
         let today = new Date().toISOString().split("T")[0];
         document.getElementById("date").value = today;
 
-        // Load dark mode preference
-        if (localStorage.theme === "dark") {
+        // Default to dark mode
+        if (!localStorage.theme || localStorage.theme === "dark") {
             document.documentElement.classList.add("dark");
-        } else {
-            document.documentElement.classList.remove("dark");
+            localStorage.theme = "dark";
         }
     });
 
-    // Toggle dark mode
     function toggleDarkMode() {
         if (document.documentElement.classList.contains("dark")) {
             document.documentElement.classList.remove("dark");
@@ -64,7 +60,6 @@ HTML_FORM = """
         }
     }
 
-    // Validate "To Date" >= "From Date"
     document.addEventListener("input", () => {
         let from = document.getElementById("from_date").value;
         let to = document.getElementById("to_date").value;
@@ -76,53 +71,53 @@ HTML_FORM = """
     });
   </script>
 </head>
-<body class="bg-gray-100 dark:bg-gray-900 min-h-screen flex items-center justify-center font-sans">
-  <div class="w-full max-w-4xl bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8">
+<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center font-sans">
+  <div class="w-full max-w-4xl bg-gray-800 rounded-2xl shadow-lg p-8">
     <div class="flex justify-between items-center mb-6">
-      <h1 class="text-3xl font-bold text-center text-green-600 dark:text-green-400">📄 PDF Generator</h1>
-      <button onclick="toggleDarkMode()" class="px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm">
-        🌙 Toggle Dark
+      <h1 class="text-3xl font-bold text-green-400">📄 PDF Generator</h1>
+      <button onclick="toggleDarkMode()" class="px-3 py-2 bg-gray-700 rounded-lg text-yellow-400 text-lg">
+        ☀️
       </button>
     </div>
 
     <form method="post" action="/generate" class="space-y-6">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-          <label class="block text-gray-700 dark:text-gray-300 font-medium mb-1">Name & Address</label>
-          <textarea name="name" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 dark:bg-gray-700 dark:text-white" rows="3" required></textarea>
+          <label class="block text-gray-300 font-medium mb-1">Name & Address</label>
+          <textarea name="name" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" rows="3" required></textarea>
         </div>
         <div>
-          <label class="block text-gray-700 dark:text-gray-300 font-medium mb-1">Date</label>
-          <input type="date" name="date" id="date" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 dark:bg-gray-700 dark:text-white" required>
+          <label class="block text-gray-300 font-medium mb-1">Date</label>
+          <input type="date" name="date" id="date" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" required>
         </div>
         <div>
-          <label class="block text-gray-700 dark:text-gray-300 font-medium mb-1">From</label>
-          <input type="date" id="from_date" name="from_date" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 dark:bg-gray-700 dark:text-white" required>
+          <label class="block text-gray-300 font-medium mb-1">From</label>
+          <input type="date" id="from_date" name="from_date" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" required>
         </div>
         <div>
-          <label class="block text-gray-700 dark:text-gray-300 font-medium mb-1">To</label>
-          <input type="date" id="to_date" name="to_date" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 dark:bg-gray-700 dark:text-white" required>
+          <label class="block text-gray-300 font-medium mb-1">To</label>
+          <input type="date" id="to_date" name="to_date" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" required>
         </div>
       </div>
 
       <div class="overflow-x-auto">
-        <table class="w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
-          <thead class="bg-gray-100 dark:bg-gray-700">
+        <table class="w-full border border-gray-600 rounded-lg overflow-hidden">
+          <thead class="bg-gray-700">
             <tr>
-              <th class="px-4 py-2 border dark:border-gray-600">Charge Type</th>
-              <th class="px-4 py-2 border dark:border-gray-600">Amount</th>
-              <th class="px-4 py-2 border dark:border-gray-600">Remarks</th>
+              <th class="px-4 py-2 border border-gray-600">Charge Type</th>
+              <th class="px-4 py-2 border border-gray-600">Amount</th>
+              <th class="px-4 py-2 border border-gray-600">Remarks</th>
             </tr>
           </thead>
           <tbody>
             {% for charge, remarks in charge_fields %}
-            <tr class="hover:bg-gray-50 dark:hover:bg-gray-600">
-              <td class="px-4 py-2 border text-gray-700 dark:text-gray-200 dark:border-gray-600">{{ charge.replace('_', ' ').title() }}</td>
-              <td class="px-4 py-2 border dark:border-gray-600">
-                <input type="number" step="0.01" name="{{ charge }}" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-2 focus:ring-2 focus:ring-green-400 dark:bg-gray-700 dark:text-white" oninput="updateTotal()">
+            <tr class="hover:bg-gray-600">
+              <td class="px-4 py-2 border border-gray-600 text-gray-200">{{ charge.replace('_', ' ').title() }}</td>
+              <td class="px-4 py-2 border border-gray-600">
+                <input type="number" step="0.01" name="{{ charge }}" class="w-full border border-green-500 rounded-lg p-2 focus:ring-2 focus:ring-green-400 bg-gray-700 text-green-300" oninput="updateTotal()">
               </td>
-              <td class="px-4 py-2 border dark:border-gray-600">
-                <input type="text" name="{{ remarks }}" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-2 focus:ring-2 focus:ring-green-400 dark:bg-gray-700 dark:text-white">
+              <td class="px-4 py-2 border border-gray-600">
+                <input type="text" name="{{ remarks }}" class="w-full border border-blue-500 rounded-lg p-2 focus:ring-2 focus:ring-blue-400 bg-gray-700 text-blue-300">
               </td>
             </tr>
             {% endfor %}
@@ -131,8 +126,8 @@ HTML_FORM = """
       </div>
 
       <div>
-        <label class="block text-gray-700 dark:text-gray-300 font-medium mb-1">Total</label>
-        <input name="total" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-gray-100 dark:bg-gray-700 dark:text-white" readonly required>
+        <label class="block text-gray-300 font-medium mb-1">Total</label>
+        <input name="total" class="w-full border border-gray-600 rounded-lg p-3 bg-gray-700 text-white" readonly required>
       </div>
 
       <div class="text-center">
