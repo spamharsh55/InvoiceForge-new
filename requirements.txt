@@ -1,4 +1,4 @@
 flask
 reportlab
 PyPDF2
-supabase-py
+supabase
