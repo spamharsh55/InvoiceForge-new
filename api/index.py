@@ -91,7 +91,7 @@ HTML_FORM = """
             <tr class="hover:bg-gray-50">
               <td class="px-4 py-2 border text-gray-700">{{ charge.replace('_', ' ').title() }}</td>
               <td class="px-4 py-2 border">
-                <input name="{{ charge }}" class="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-400" oninput="updateTotal()">
+                <input type="number" name="{{ charge }}" class="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-400" oninput="updateTotal()">
               </td>
               <td class="px-4 py-2 border">
                 <input name="{{ remarks }}" class="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-400">
@@ -104,7 +104,7 @@ HTML_FORM = """
 
       <div>
         <label class="block text-gray-700 font-medium mb-1">Total</label>
-        <input name="total" class="w-full border border-gray-300 rounded-lg p-3 bg-gray-100" readonly required>
+        <input type="number" name="total" class="w-full border border-gray-300 rounded-lg p-3 bg-gray-100" required>
       </div>
 
       <div class="text-center">
