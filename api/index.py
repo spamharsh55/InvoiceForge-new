@@ -34,6 +34,17 @@ HTML_FORM = """
         let today = new Date().toISOString().split("T")[0];
         document.getElementById("date").value = today;
     });
+
+    // Validate "To Date" >= "From Date"
+    document.addEventListener("input", () => {
+        let from = document.getElementById("from_date").value;
+        let to = document.getElementById("to_date").value;
+        if (from && to && to < from) {
+            document.getElementById("to_date").setCustomValidity("To Date cannot be earlier than From Date");
+        } else {
+            document.getElementById("to_date").setCustomValidity("");
+        }
+    });
   </script>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center font-sans">
@@ -52,11 +63,11 @@ HTML_FORM = """
         </div>
         <div>
           <label class="block text-gray-700 font-medium mb-1">From</label>
-          <input type="date" name="from_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" required>
+          <input type="date" id="from_date" name="from_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" required>
         </div>
         <div>
           <label class="block text-gray-700 font-medium mb-1">To</label>
-          <input type="date" name="to_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" required>
+          <input type="date" id="to_date" name="to_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" required>
         </div>
       </div>
 
