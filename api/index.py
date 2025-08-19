@@ -4,7 +4,7 @@ from PyPDF2 import PdfReader, PdfWriter
 import io
 import os
 from datetime import datetime
-from supabase import create_client
+from supabase import create_client, Client
 
 # Flask app
 app = Flask(__name__)
