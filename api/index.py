@@ -18,12 +18,15 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # ----------------------------- HTML Form ----------------------------- #
 HTML_FORM = """
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <title>PDF Generator</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
+    // Enable dark mode with Tailwind
+    tailwind.config = { darkMode: 'class' };
+
     function updateTotal() {
         let fields = [
             "cf_charges", "godown_rent", "courier_charges", "electric_bill",
@@ -37,11 +40,31 @@ HTML_FORM = """
         document.querySelector('[name="total"]').value = total.toFixed(2);
     }
 
+    // Auto-fill today's date
     document.addEventListener("DOMContentLoaded", () => {
         let today = new Date().toISOString().split("T")[0];
         document.getElementById("date").value = today;
+
+        // Load dark mode preference
+        if (localStorage.theme === "dark") {
+            document.documentElement.classList.add("dark");
+        } else {
+            document.documentElement.classList.remove("dark");
+        }
     });
 
+    // Toggle dark mode
+    function toggleDarkMode() {
+        if (document.documentElement.classList.contains("dark")) {
+            document.documentElement.classList.remove("dark");
+            localStorage.theme = "light";
+        } else {
+            document.documentElement.classList.add("dark");
+            localStorage.theme = "dark";
+        }
+    }
+
+    // Validate "To Date" >= "From Date"
     document.addEventListener("input", () => {
         let from = document.getElementById("from_date").value;
         let to = document.getElementById("to_date").value;
@@ -53,48 +76,53 @@ HTML_FORM = """
     });
   </script>
 </head>
-<body class="bg-gray-100 min-h-screen flex items-center justify-center font-sans">
-  <div class="w-full max-w-4xl bg-white rounded-2xl shadow-lg p-8">
-    <h1 class="text-3xl font-bold text-center text-green-600 mb-6">📄 PDF Generator</h1>
+<body class="bg-gray-100 dark:bg-gray-900 min-h-screen flex items-center justify-center font-sans">
+  <div class="w-full max-w-4xl bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-3xl font-bold text-center text-green-600 dark:text-green-400">📄 PDF Generator</h1>
+      <button onclick="toggleDarkMode()" class="px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-sm">
+        🌙 Toggle Dark
+      </button>
+    </div>
 
     <form method="post" action="/generate" class="space-y-6">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-          <label class="block text-gray-700 font-medium mb-1">Name & Address</label>
-          <textarea name="name" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" rows="3" required></textarea>
+          <label class="block text-gray-700 dark:text-gray-300 font-medium mb-1">Name & Address</label>
+          <textarea name="name" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 dark:bg-gray-700 dark:text-white" rows="3" required></textarea>
         </div>
         <div>
-          <label class="block text-gray-700 font-medium mb-1">Date</label>
-          <input type="date" name="date" id="date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" required>
+          <label class="block text-gray-700 dark:text-gray-300 font-medium mb-1">Date</label>
+          <input type="date" name="date" id="date" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 dark:bg-gray-700 dark:text-white" required>
         </div>
         <div>
-          <label class="block text-gray-700 font-medium mb-1">From</label>
-          <input type="date" id="from_date" name="from_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" required>
+          <label class="block text-gray-700 dark:text-gray-300 font-medium mb-1">From</label>
+          <input type="date" id="from_date" name="from_date" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 dark:bg-gray-700 dark:text-white" required>
         </div>
         <div>
-          <label class="block text-gray-700 font-medium mb-1">To</label>
-          <input type="date" id="to_date" name="to_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" required>
+          <label class="block text-gray-700 dark:text-gray-300 font-medium mb-1">To</label>
+          <input type="date" id="to_date" name="to_date" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 dark:bg-gray-700 dark:text-white" required>
         </div>
       </div>
 
       <div class="overflow-x-auto">
-        <table class="w-full border border-gray-300 rounded-lg overflow-hidden">
-          <thead class="bg-gray-100">
+        <table class="w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
+          <thead class="bg-gray-100 dark:bg-gray-700">
             <tr>
-              <th class="px-4 py-2 border">Charge Type</th>
-              <th class="px-4 py-2 border">Amount</th>
-              <th class="px-4 py-2 border">Remarks</th>
+              <th class="px-4 py-2 border dark:border-gray-600">Charge Type</th>
+              <th class="px-4 py-2 border dark:border-gray-600">Amount</th>
+              <th class="px-4 py-2 border dark:border-gray-600">Remarks</th>
             </tr>
           </thead>
           <tbody>
             {% for charge, remarks in charge_fields %}
-            <tr class="hover:bg-gray-50">
-              <td class="px-4 py-2 border text-gray-700">{{ charge.replace('_', ' ').title() }}</td>
-              <td class="px-4 py-2 border">
-                <input type="number" name="{{ charge }}" class="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-400" oninput="updateTotal()">
+            <tr class="hover:bg-gray-50 dark:hover:bg-gray-600">
+              <td class="px-4 py-2 border text-gray-700 dark:text-gray-200 dark:border-gray-600">{{ charge.replace('_', ' ').title() }}</td>
+              <td class="px-4 py-2 border dark:border-gray-600">
+                <input type="number" step="0.01" name="{{ charge }}" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-2 focus:ring-2 focus:ring-green-400 dark:bg-gray-700 dark:text-white" oninput="updateTotal()">
               </td>
-              <td class="px-4 py-2 border">
-                <input name="{{ remarks }}" class="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-green-400">
+              <td class="px-4 py-2 border dark:border-gray-600">
+                <input type="text" name="{{ remarks }}" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-2 focus:ring-2 focus:ring-green-400 dark:bg-gray-700 dark:text-white">
               </td>
             </tr>
             {% endfor %}
@@ -103,8 +131,8 @@ HTML_FORM = """
       </div>
 
       <div>
-        <label class="block text-gray-700 font-medium mb-1">Total</label>
-        <input type="number" name="total" class="w-full border border-gray-300 rounded-lg p-3 bg-gray-100" required>
+        <label class="block text-gray-700 dark:text-gray-300 font-medium mb-1">Total</label>
+        <input name="total" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-gray-100 dark:bg-gray-700 dark:text-white" readonly required>
       </div>
 
       <div class="text-center">
@@ -118,7 +146,7 @@ HTML_FORM = """
 </html>
 """
 
-# ----------------------------- Helper Functions ----------------------------- #
+# ----------------------------- Helpers ----------------------------- #
 
 def format_date_ddmmyyyy(date_str):
     try:
@@ -127,18 +155,15 @@ def format_date_ddmmyyyy(date_str):
     except Exception:
         return date_str or ""
 
-
 def safe_number(val):
     try:
         return float(val) if val not in ("", None) else None
     except:
         return None
 
-
 def create_overlay(data):
     packet = io.BytesIO()
-    can = canvas.Canvas(packet, pagesize=(612, 792))  # Letter size
-
+    can = canvas.Canvas(packet, pagesize=(612, 792))
     name_lines = str(data.get("name", "")).splitlines()
     can.setFont("Times-Bold", 12)
     if name_lines:
@@ -146,9 +171,8 @@ def create_overlay(data):
 
     can.setFont("Times-Roman", 12)
     for i, line in enumerate(name_lines[1:], start=1):
-        clean_line = line.strip()
-        if clean_line:
-            can.drawString(73, 647 - (i * 14), clean_line)
+        if line.strip():
+            can.drawString(73, 647 - (i * 14), line.strip())
 
     date = format_date_ddmmyyyy(data.get("date", ""))
     from_date = format_date_ddmmyyyy(data.get("from_date", ""))
@@ -185,7 +209,6 @@ def create_overlay(data):
     packet.seek(0)
     return packet
 
-
 def fill_pdf(template_path, data):
     if not os.path.exists(template_path):
         raise FileNotFoundError(f"Template file '{template_path}' not found")
@@ -200,7 +223,6 @@ def fill_pdf(template_path, data):
         writer.write(output)
         output.seek(0)
         return output
-
 
 def insert_into_db(data):
     try:
@@ -223,7 +245,6 @@ def insert_into_db(data):
     except Exception as e:
         print("❌ Supabase insert failed:", str(e))
 
-
 # ----------------------------- Routes ----------------------------- #
 
 @app.route("/", methods=["GET"])
@@ -239,7 +260,6 @@ def form():
         ("hamali_charges", "hamali_remarks"),
     ]
     return render_template_string(HTML_FORM, charge_fields=charge_fields)
-
 
 @app.route("/generate", methods=["POST"])
 def generate():
