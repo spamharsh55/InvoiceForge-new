@@ -108,6 +108,10 @@ HTML_FORM = """
         </button>
       </div>
     </form>
+
+    <div class="text-center mt-6">
+      <a href="/records" class="text-blue-600 underline">View All Records</a>
+    </div>
   </div>
 </body>
 </html>
@@ -124,30 +128,26 @@ def create_overlay(data):
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=(612, 792))  # Letter size
 
-    # Handle Name & Address (split by newline)
+    # Handle Name & Address
     name_lines = str(data.get("name", "")).splitlines()
     can.setFont("Times-Bold", 12)
-
     if name_lines:
-        can.drawString(73, 647, name_lines[0].strip())  # First line (Name)
-
+        can.drawString(73, 647, name_lines[0].strip())
     can.setFont("Times-Roman", 12)
     for i, line in enumerate(name_lines[1:], start=1):
-        clean_line = line.strip()
-        if clean_line:  # Skip blank/empty lines
-            can.drawString(73, 647 - (i * 14), clean_line)
+        if line.strip():
+            can.drawString(73, 647 - (i * 14), line.strip())
 
-    # Format dates to dd-mm-yyyy
+    # Dates
     date = format_date_ddmmyyyy(data.get("date", ""))
     from_date = format_date_ddmmyyyy(data.get("from_date", ""))
     to_date = format_date_ddmmyyyy(data.get("to_date", ""))
-
     can.setFont("Times-Roman", 11)
     can.drawString(467, 711, date)
     can.drawString(310, 542, from_date)
     can.drawString(385, 542, to_date)
 
-    # Charges + Remarks
+    # Charges
     y_start = 477
     step = 17
     charge_fields = [
@@ -160,7 +160,6 @@ def create_overlay(data):
         ("labour_charges", "labour_remarks"),
         ("hamali_charges", "hamali_remarks"),
     ]
-
     can.setFont("Times-Roman", 11)
     for i, (charge, remark) in enumerate(charge_fields):
         y = y_start - (i * step)
@@ -190,10 +189,11 @@ def fill_pdf(template_path, data):
         output.seek(0)
         return output
 
-# ✅ Connect to Supabase PostgreSQL
+# ✅ Insert into Supabase PostgreSQL
 def insert_into_db(data):
+    print("🟡 Attempting to insert into Supabase...")
     try:
-        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        conn = psycopg2.connect(os.environ["DATABASE_URL"], sslmode="require")
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO pdf_records
@@ -218,8 +218,9 @@ def insert_into_db(data):
         conn.commit()
         cur.close()
         conn.close()
+        print("✅ Data inserted into Supabase")
     except Exception as e:
-        print("❌ Database insert failed:", e)
+        print("❌ Database insert failed:", str(e))
 
 @app.route("/", methods=["GET"])
 def form():
@@ -252,13 +253,10 @@ def generate():
             pass
     data["total"] = str(round(total, 2))
 
-    # ✅ Insert into Supabase PostgreSQL
-    insert_into_db(data)
+    insert_into_db(data)  # ✅ Store in Supabase
 
-    # Generate PDF
     pdf_bytes = fill_pdf("template.pdf", data)
 
-    # Use user's name (first line only) in download filename
     user_name = str(data.get("name", "document")).split("\n")[0].strip().replace(" ", "_")
     filename = f"{user_name}.pdf"
 
@@ -266,3 +264,65 @@ def generate():
                      as_attachment=True,
                      download_name=filename,
                      mimetype="application/pdf")
+
+@app.route("/records", methods=["GET"])
+def records():
+    try:
+        conn = psycopg2.connect(os.environ["DATABASE_URL"], sslmode="require")
+        cur = conn.cursor()
+        cur.execute("SELECT id, name, date, from_date, to_date, total, created_at FROM pdf_records ORDER BY created_at DESC;")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        return f"<h1>❌ Failed to fetch records: {str(e)}</h1>"
+
+    # Render records table
+    html = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Records</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-gray-100 p-8">
+      <div class="max-w-6xl mx-auto bg-white shadow-lg rounded-xl p-6">
+        <h1 class="text-2xl font-bold text-green-600 mb-4">📊 Stored Records</h1>
+        <table class="w-full border border-gray-300 rounded-lg overflow-hidden">
+          <thead class="bg-gray-200">
+            <tr>
+              <th class="px-4 py-2 border">ID</th>
+              <th class="px-4 py-2 border">Name</th>
+              <th class="px-4 py-2 border">Date</th>
+              <th class="px-4 py-2 border">From</th>
+              <th class="px-4 py-2 border">To</th>
+              <th class="px-4 py-2 border">Total</th>
+              <th class="px-4 py-2 border">Created At</th>
+            </tr>
+          </thead>
+          <tbody>
+    """
+    for row in rows:
+        html += f"""
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-2 border">{row[0]}</td>
+          <td class="px-4 py-2 border">{row[1]}</td>
+          <td class="px-4 py-2 border">{row[2]}</td>
+          <td class="px-4 py-2 border">{row[3]}</td>
+          <td class="px-4 py-2 border">{row[4]}</td>
+          <td class="px-4 py-2 border">{row[5]}</td>
+          <td class="px-4 py-2 border">{row[6]}</td>
+        </tr>
+        """
+    html += """
+          </tbody>
+        </table>
+        <div class="mt-6 text-center">
+          <a href="/" class="text-blue-600 underline">⬅ Back to Form</a>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+    return html
