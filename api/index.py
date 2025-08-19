@@ -122,31 +122,33 @@ def format_date_ddmmyyyy(date_str):
 
 def create_overlay(data):
     packet = io.BytesIO()
-    can = canvas.Canvas(packet, pagesize=(612, 792))
+    can = canvas.Canvas(packet, pagesize=(612, 792))  # Letter size
 
-    # Name & Address
+    # Handle Name & Address (split by newline)
     name_lines = str(data.get("name", "")).splitlines()
     can.setFont("Times-Bold", 12)
+
     if name_lines:
-        can.drawString(80, 620, name_lines[0].strip())
-    can.setFont("Times-Roman", 10)
+        can.drawString(73, 647, name_lines[0].strip())  # First line (Name)
+
+    can.setFont("Times-Roman", 12)
     for i, line in enumerate(name_lines[1:], start=1):
         clean_line = line.strip()
-        if clean_line:
-            can.drawString(80, 620 - (i * 14), clean_line)
+        if clean_line:  # Skip blank/empty lines
+            can.drawString(73, 647 - (i * 14), clean_line)
 
-    # Dates
+    # Format dates to dd-mm-yyyy
     date = format_date_ddmmyyyy(data.get("date", ""))
     from_date = format_date_ddmmyyyy(data.get("from_date", ""))
     to_date = format_date_ddmmyyyy(data.get("to_date", ""))
 
-    can.setFont("Times-Roman", 10)
-    can.drawString(464, 680, date)
-    can.drawString(330, 530, from_date)
-    can.drawString(410, 530, to_date)
+    can.setFont("Times-Roman", 11)
+    can.drawString(467, 711, date)
+    can.drawString(310, 542, from_date)
+    can.drawString(385, 542, to_date)
 
-    # Charges + remarks
-    y_start = 465
+    # Charges + Remarks
+    y_start = 477
     step = 17
     charge_fields = [
         ("cf_charges", "cf_remarks"),
@@ -158,15 +160,16 @@ def create_overlay(data):
         ("labour_charges", "labour_remarks"),
         ("hamali_charges", "hamali_remarks"),
     ]
-    can.setFont("Times-Roman", 10)
+
+    can.setFont("Times-Roman", 11)
     for i, (charge, remark) in enumerate(charge_fields):
         y = y_start - (i * step)
-        can.drawString(320, y, str(data.get(charge, "")))
-        can.drawString(413, y, str(data.get(remark, "")))
+        can.drawString(310, y, str(data.get(charge, "")))
+        can.drawString(390, y, str(data.get(remark, "")))
 
     # Total
     can.setFont("Times-Bold", 12)
-    can.drawString(320, 328, str(data.get("total", "")))
+    can.drawString(295, 340, str(data.get("total", "")))
 
     can.save()
     packet.seek(0)
