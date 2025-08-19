@@ -63,11 +63,11 @@ HTML_FORM = """
         </div>
         <div>
           <label class="block text-gray-700 font-medium mb-1">From</label>
-          <input type="date" id="from_date" name="from_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" required>
+          <input type="date" id="from_date" name="from_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" placeholder="DD/MM/YYYY" required>
         </div>
         <div>
           <label class="block text-gray-700 font-medium mb-1">To</label>
-          <input type="date" id="to_date" name="to_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" required>
+          <input type="date" id="to_date" name="to_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" placeholder="DD/MM/YYYY" required>
         </div>
       </div>
 
