@@ -129,7 +129,7 @@ HTML_FORM = """
 
       <div class="text-center">
         <button type="submit" class="px-6 py-3 bg-green-600 text-white rounded-lg shadow hover:bg-green-700 transition">
-          Generate PDF
+          Generate
         </button>
       </div>
     </form>
