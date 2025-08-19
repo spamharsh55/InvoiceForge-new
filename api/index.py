@@ -4,6 +4,7 @@ from PyPDF2 import PdfReader, PdfWriter
 import io
 import os
 from datetime import datetime
+import psycopg2
 
 app = Flask(__name__)
 
@@ -63,11 +64,11 @@ HTML_FORM = """
         </div>
         <div>
           <label class="block text-gray-700 font-medium mb-1">From</label>
-          <input type="date" id="from_date" name="from_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" placeholder="DD/MM/YYYY" required>
+          <input type="date" id="from_date" name="from_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" required>
         </div>
         <div>
           <label class="block text-gray-700 font-medium mb-1">To</label>
-          <input type="date" id="to_date" name="to_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" placeholder="DD/MM/YYYY" required>
+          <input type="date" id="to_date" name="to_date" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-green-400" required>
         </div>
       </div>
 
@@ -121,33 +122,31 @@ def format_date_ddmmyyyy(date_str):
 
 def create_overlay(data):
     packet = io.BytesIO()
-    can = canvas.Canvas(packet, pagesize=(612, 792))  # Letter size
+    can = canvas.Canvas(packet, pagesize=(612, 792))
 
-    # Handle Name & Address (split by newline)
+    # Name & Address
     name_lines = str(data.get("name", "")).splitlines()
     can.setFont("Times-Bold", 12)
-
     if name_lines:
-        can.drawString(73, 647, name_lines[0].strip())  # First line (Name)
-
-    can.setFont("Times-Roman", 12)
+        can.drawString(80, 620, name_lines[0].strip())
+    can.setFont("Times-Roman", 10)
     for i, line in enumerate(name_lines[1:], start=1):
         clean_line = line.strip()
-        if clean_line:  # Skip blank/empty lines
-            can.drawString(73, 647 - (i * 14), clean_line)
+        if clean_line:
+            can.drawString(80, 620 - (i * 14), clean_line)
 
-    # Format dates to dd-mm-yyyy
+    # Dates
     date = format_date_ddmmyyyy(data.get("date", ""))
     from_date = format_date_ddmmyyyy(data.get("from_date", ""))
     to_date = format_date_ddmmyyyy(data.get("to_date", ""))
 
-    can.setFont("Times-Roman", 11)
-    can.drawString(467, 711, date)
-    can.drawString(310, 542, from_date)
-    can.drawString(385, 542, to_date)
+    can.setFont("Times-Roman", 10)
+    can.drawString(464, 680, date)
+    can.drawString(330, 530, from_date)
+    can.drawString(410, 530, to_date)
 
-    # Charges + Remarks
-    y_start = 477
+    # Charges + remarks
+    y_start = 465
     step = 17
     charge_fields = [
         ("cf_charges", "cf_remarks"),
@@ -159,16 +158,15 @@ def create_overlay(data):
         ("labour_charges", "labour_remarks"),
         ("hamali_charges", "hamali_remarks"),
     ]
-
-    can.setFont("Times-Roman", 11)
+    can.setFont("Times-Roman", 10)
     for i, (charge, remark) in enumerate(charge_fields):
         y = y_start - (i * step)
-        can.drawString(310, y, str(data.get(charge, "")))
-        can.drawString(390, y, str(data.get(remark, "")))
+        can.drawString(320, y, str(data.get(charge, "")))
+        can.drawString(413, y, str(data.get(remark, "")))
 
     # Total
     can.setFont("Times-Bold", 12)
-    can.drawString(295, 340, str(data.get("total", "")))
+    can.drawString(320, 328, str(data.get("total", "")))
 
     can.save()
     packet.seek(0)
@@ -189,6 +187,37 @@ def fill_pdf(template_path, data):
         output.seek(0)
         return output
 
+# ✅ Connect to Supabase PostgreSQL
+def insert_into_db(data):
+    try:
+        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO pdf_records
+            (name, date, from_date, to_date, cf_charges, godown_rent, courier_charges,
+             electric_bill, internet_charges, local_freight, labour_charges, hamali_charges, total)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            data.get("name"),
+            data.get("date"),
+            data.get("from_date"),
+            data.get("to_date"),
+            data.get("cf_charges"),
+            data.get("godown_rent"),
+            data.get("courier_charges"),
+            data.get("electric_bill"),
+            data.get("internet_charges"),
+            data.get("local_freight"),
+            data.get("labour_charges"),
+            data.get("hamali_charges"),
+            data.get("total"),
+        ))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print("❌ Database insert failed:", e)
+
 @app.route("/", methods=["GET"])
 def form():
     charge_fields = [
@@ -206,6 +235,8 @@ def form():
 @app.route("/generate", methods=["POST"])
 def generate():
     data = {key: request.form[key] for key in request.form}
+
+    # Calculate total
     charge_fields = [
         "cf_charges", "godown_rent", "courier_charges", "electric_bill",
         "internet_charges", "local_freight", "labour_charges", "hamali_charges"
@@ -217,7 +248,18 @@ def generate():
         except ValueError:
             pass
     data["total"] = str(round(total, 2))
+
+    # ✅ Insert into Supabase PostgreSQL
+    insert_into_db(data)
+
+    # Generate PDF
     pdf_bytes = fill_pdf("template.pdf", data)
+
+    # Use user's name (first line only) in download filename
     user_name = str(data.get("name", "document")).split("\n")[0].strip().replace(" ", "_")
     filename = f"{user_name}.pdf"
-    return send_file(pdf_bytes, as_attachment=True, download_name=filename, mimetype="application/pdf")
+
+    return send_file(pdf_bytes,
+                     as_attachment=True,
+                     download_name=filename,
+                     mimetype="application/pdf")
