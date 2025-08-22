@@ -1,8 +1,13 @@
+# api/index.py
 from flask import Flask, render_template_string, request, send_file, redirect, url_for
 from reportlab.pdfgen import canvas
+from reportlab.platypus import Table, TableStyle
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
 from PyPDF2 import PdfReader, PdfWriter
 import io
 import os
+import json
 from datetime import datetime
 from supabase import create_client, Client
 
@@ -11,9 +16,15 @@ app = Flask(__name__)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "template.pdf")
+# IMPORTANT: template.pdf is in project root (not in /api)
+
+TEMPLATE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "template.pdf"))
+# Page size is 612 x 792 (US Letter) in points
+PAGE_W, PAGE_H = letter  # (612.0, 792.0)
 
 # ----------------------------- Shared HTML ----------------------------- #
 BASE_HEAD = """
@@ -22,6 +33,7 @@ BASE_HEAD = """
 <head>
   <meta charset="UTF-8">
   <title>{{ title }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' };</script>
 </head>
@@ -30,7 +42,7 @@ BASE_HEAD = """
 # ----------------------------- Form (Create/Edit) ----------------------------- #
 HTML_FORM = BASE_HEAD + """
 <body class="bg-gray-900 text-white min-h-screen flex items-center justify-center font-sans">
-  <div class="w-full max-w-4xl bg-gray-800 rounded-2xl shadow-lg p-8">
+  <div class="w-full max-w-5xl bg-gray-800 rounded-2xl shadow-lg p-8">
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-3xl font-bold text-green-400">{{ header }}</h1>
       <div class="flex gap-2">
@@ -39,54 +51,54 @@ HTML_FORM = BASE_HEAD + """
       </div>
     </div>
 
-    <form method="post" action="{{ action_url }}" class="space-y-6">
+    <form method="post" action="{{ action_url }}" class="space-y-6" id="bill-form">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <label class="block text-gray-300 font-medium mb-1">Name & Address</label>
           <textarea name="name" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" rows="3" required>{{ data.get('name','') }}</textarea>
         </div>
-        <div>
-          <label class="block text-gray-300 font-medium mb-1">Date</label>
-          <input type="date" name="date" id="date" value="{{ data.get('date','') }}" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" required>
-        </div>
-        <div>
-          <label class="block text-gray-300 font-medium mb-1">From</label>
-          <input type="date" id="from_date" name="from_date" value="{{ data.get('from_date','') }}" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" required>
-        </div>
-        <div>
-          <label class="block text-gray-300 font-medium mb-1">To</label>
-          <input type="date" id="to_date" name="to_date" value="{{ data.get('to_date','') }}" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" required>
+        <div class="grid grid-cols-1 gap-6">
+          <div>
+            <label class="block text-gray-300 font-medium mb-1">Date</label>
+            <input type="date" name="date" id="date" value="{{ data.get('date','') }}" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" required>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-gray-300 font-medium mb-1">From</label>
+              <input type="date" id="from_date" name="from_date" value="{{ data.get('from_date','') }}" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" required>
+            </div>
+            <div>
+              <label class="block text-gray-300 font-medium mb-1">To</label>
+              <input type="date" id="to_date" name="to_date" value="{{ data.get('to_date','') }}" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" required>
+            </div>
+          </div>
         </div>
       </div>
 
+      <!-- Dynamic Charges Table -->
       <div class="overflow-x-auto">
-        <table class="w-full border border-gray-600 rounded-lg overflow-hidden">
+        <table class="w-full border border-gray-600 rounded-lg overflow-hidden text-sm" id="charges-table">
           <thead class="bg-gray-700">
             <tr>
-              <th class="px-4 py-2 border border-gray-600">Charge Type</th>
-              <th class="px-4 py-2 border border-gray-600">Amount</th>
-              <th class="px-4 py-2 border border-gray-600">Remarks</th>
+              <th class="px-4 py-2 border border-gray-600 text-left">Charge Type</th>
+              <th class="px-4 py-2 border border-gray-600 text-right">Amount</th>
+              <th class="px-4 py-2 border border-gray-600 text-left">Remarks</th>
+              <th class="px-4 py-2 border border-gray-600">Action</th>
             </tr>
           </thead>
-          <tbody>
-            {% for charge, remarks in charge_fields %}
-            <tr class="hover:bg-gray-600">
-              <td class="px-4 py-2 border border-gray-600 text-gray-200">{{ charge.replace('_', ' ').title() }}</td>
-              <td class="px-4 py-2 border border-gray-600">
-                <input type="number" step="0.01" name="{{ charge }}" value="{{ data.get(charge,'') }}" class="w-full border border-green-500 rounded-lg p-2 focus:ring-2 focus:ring-green-400 bg-gray-700 text-green-300" oninput="updateTotal()">
-              </td>
-              <td class="px-4 py-2 border border-gray-600">
-                <input type="text" name="{{ remarks }}" value="{{ data.get(remarks,'') }}" class="w-full border border-blue-500 rounded-lg p-2 focus:ring-2 focus:ring-blue-400 bg-gray-700 text-blue-300">
-              </td>
-            </tr>
-            {% endfor %}
+          <tbody id="charges-body">
+            <!-- Rows will be populated from server or defaults -->
           </tbody>
         </table>
       </div>
 
-      <div>
-        <label class="block text-gray-300 font-medium mb-1">Total</label>
-        <input name="total" value="{{ data.get('total','') }}" class="w-full border border-gray-600 rounded-lg p-3 bg-gray-700 text-white" readonly required>
+      <div class="flex items-center justify-between gap-4">
+        <button type="button" id="add-row" class="px-4 py-2 bg-emerald-600 rounded-lg hover:bg-emerald-700">➕ Add Charge</button>
+        <div class="flex-1"></div>
+        <div class="w-60">
+          <label class="block text-gray-300 font-medium mb-1">Total</label>
+          <input name="total" id="total" value="{{ data.get('total','') }}" class="w-full border border-gray-600 rounded-lg p-3 bg-gray-700 text-white text-right" readonly required>
+        </div>
       </div>
 
       <div class="flex justify-center gap-4">
@@ -97,41 +109,82 @@ HTML_FORM = BASE_HEAD + """
           View Records
         </a>
       </div>
+
+      <!-- Hidden bootstrap of existing charges from server -->
+      <input type="hidden" id="bootstrap-charges" value='{{ charges_json|tojson }}' />
     </form>
   </div>
 
   <script>
-    function updateTotal() {
-      let fields = [
-        "cf_charges", "godown_rent", "courier_charges", "electric_bill",
-        "internet_charges", "local_freight", "labour_charges", "hamali_charges"
-      ];
-      let total = 0;
-      fields.forEach(id => {
-        let el = document.querySelector(`[name="${id}"]`);
-        let val = parseFloat(el && el.value) || 0;
-        total += val;
-      });
-      let totalEl = document.querySelector('[name="total"]');
-      if (totalEl) totalEl.value = total.toFixed(2);
+    const defaultCharges = [
+      "C & F CHARGES",
+      "GODOWN RENT",
+      "COURIER CHARGES",
+      "ELECTRIC BILL",
+      "INTERNET CHARGES",
+      "LOCAL FREIGHT",
+      "LABOUR CHARGES",
+      "HAMALI CHARGES",
+    ];
+
+    function addRow(type = "", amount = "", remark = "") {
+      const tbody = document.getElementById("charges-body");
+      const tr = document.createElement("tr");
+      tr.className = "hover:bg-gray-700";
+      tr.innerHTML = `
+        <td class="px-3 py-2 border border-gray-700">
+          <input type="text" name="charge_type[]" value="${type}" placeholder="Charge type" class="w-full border border-gray-600 rounded p-2 bg-gray-700 text-white">
+        </td>
+        <td class="px-3 py-2 border border-gray-700 text-right">
+          <input type="number" step="0.01" name="charge_amount[]" value="${amount}" class="w-full border border-gray-600 rounded p-2 bg-gray-700 text-right text-green-300" oninput="recomputeTotal()">
+        </td>
+        <td class="px-3 py-2 border border-gray-700">
+          <input type="text" name="charge_remark[]" value="${remark}" placeholder="Remark (optional)" class="w-full border border-gray-600 rounded p-2 bg-gray-700 text-white">
+        </td>
+        <td class="px-3 py-2 border border-gray-700 text-center">
+          <button type="button" class="px-2 py-1 bg-red-600 rounded hover:bg-red-700" onclick="this.closest('tr').remove(); recomputeTotal();">❌</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
     }
 
-    // Prefill today's date for create mode
-    (function(){
+    function recomputeTotal() {
+      const amounts = Array.from(document.querySelectorAll('input[name="charge_amount[]"]'))
+        .map(i => parseFloat(i.value || "0") || 0);
+      const total = amounts.reduce((a,b)=>a+b, 0);
+      document.getElementById("total").value = total.toFixed(2);
+    }
+
+    // Prefill for create mode
+    (function init() {
       const isCreate = "{{ is_create|default(True) }}";
-      if (isCreate === "True") {
-        const dt = document.getElementById("date");
-        if (dt && !dt.value) dt.value = new Date().toISOString().split("T")[0];
+      const dt = document.getElementById("date");
+      if (isCreate === "True" && dt && !dt.value) {
+        dt.value = new Date().toISOString().split("T")[0];
       }
+      const boot = document.getElementById("bootstrap-charges").value;
+      let charges = [];
+      try { charges = JSON.parse(boot) || []; } catch(e) { charges = []; }
+
+      if (charges.length) {
+        charges.forEach(ch => addRow(ch.type || "", ch.amount || "", ch.remark || ""));
+      } else {
+        defaultCharges.forEach(label => addRow(label, "", ""));
+      }
+      recomputeTotal();
+
+      document.getElementById("add-row").addEventListener("click", () => addRow("", "", ""));
     })();
 
+    // Date validation
     document.addEventListener("input", () => {
       let from = document.getElementById("from_date").value;
       let to = document.getElementById("to_date").value;
+      const toEl = document.getElementById("to_date");
       if (from && to && to < from) {
-        document.getElementById("to_date").setCustomValidity("To Date cannot be earlier than From Date");
+        toEl.setCustomValidity("To Date cannot be earlier than From Date");
       } else {
-        document.getElementById("to_date").setCustomValidity("");
+        toEl.setCustomValidity("");
       }
     });
   </script>
@@ -169,7 +222,7 @@ HTML_RECORDS = BASE_HEAD + """
             <td class="px-3 py-2 border border-gray-700">{{ r.get('date','') }}</td>
             <td class="px-3 py-2 border border-gray-700">{{ r.get('from_date','') }}</td>
             <td class="px-3 py-2 border border-gray-700">{{ r.get('to_date','') }}</td>
-            <td class="px-3 py-2 border border-gray-700 text-right">{{ r.get('total','') }}</td>
+            <td class="px-3 py-2 border border-gray-700 text-right">{{ '%.2f'|format(r.get('total') or 0) }}</td>
             <td class="px-3 py-2 border border-gray-700">
               <div class="flex gap-2">
                 <a href="{{ url_for('print_record', record_id=r.get('id')) }}" class="px-3 py-1 bg-emerald-600 rounded hover:bg-emerald-700">Print</a>
@@ -210,72 +263,169 @@ def format_date_ddmmyyyy(date_str):
     except Exception:
         return date_str or ""
 
-def safe_number(val):
+def to_number(val):
     try:
-        return float(val) if str(val).strip() not in ("", "None", "null") and val is not None else None
+        return float(val)
     except Exception:
-        return None
+        return 0.0
 
-def charge_pairs():
-    return [
-        ("cf_charges", "cf_remarks"),
-        ("godown_rent", "godown_remarks"),
-        ("courier_charges", "courier_remarks"),
-        ("electric_bill", "electric_remarks"),
-        ("internet_charges", "internet_remarks"),
-        ("local_freight", "local_remarks"),
-        ("labour_charges", "labour_remarks"),
-        ("hamali_charges", "hamali_remarks"),
+def compute_total_from_charges(charges):
+    return round(sum(to_number(ch.get("amount", 0)) for ch in (charges or [])), 2)
+
+def normalize_charges_from_request(form):
+    types = form.getlist("charge_type[]")
+    amounts = form.getlist("charge_amount[]")
+    remarks = form.getlist("charge_remark[]")
+    charges = []
+    for t, a, r in zip(types, amounts, remarks):
+        t = (t or "").strip()
+        if t == "" and (a or "").strip() == "" and (r or "").strip() == "":
+            continue
+        amt = to_number(a)
+        charges.append({"type": t, "amount": amt, "remark": r or ""})
+    return charges
+
+def migrate_row_to_charges_if_needed(row):
+    """
+    Backward compatibility: if a row doesn't have JSON charges but has old columns,
+    convert them into a charges array for UI/PDF usage.
+    """
+    if row.get("charges"):
+        return row["charges"]
+
+    pairs = [
+        ("C & F CHARGES", "cf_charges", "cf_remarks"),
+        ("GODOWN RENT", "godown_rent", "godown_remarks"),
+        ("COURIER CHARGES", "courier_charges", "courier_remarks"),
+        ("ELECTRIC BILL", "electric_bill", "electric_remarks"),
+        ("INTERNET CHARGES", "internet_charges", "internet_remarks"),
+        ("LOCAL FREIGHT", "local_freight", "local_remarks"),
+        ("LABOUR CHARGES", "labour_charges", "labour_remarks"),
+        ("HAMALI CHARGES", "hamali_charges", "hamali_remarks"),
     ]
+    charges = []
+    for label, amount_key, remark_key in pairs:
+        amount = row.get(amount_key)
+        remark = row.get(remark_key)
+        if amount is not None and str(amount).strip() not in ("", "None", "null"):
+            charges.append({"type": label, "amount": to_number(amount), "remark": remark or ""})
+    return charges
 
-def create_overlay(data):
-    packet = io.BytesIO()
-    can = canvas.Canvas(packet, pagesize=(612, 792))
+# ----------------------------- PDF Generation ----------------------------- #
+def create_overlay_pdf(data):
+  buf = io.BytesIO()
+  can = canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
 
-    # Name & address
-    name_lines = str(data.get("name", "")).splitlines()
-    can.setFont("Times-Bold", 12)
-    if name_lines:
-        can.drawString(73, 647, name_lines[0].strip())
-    can.setFont("Times-Roman", 12)
-    for i, line in enumerate(name_lines[1:], start=1):
-        if line.strip():
-            can.drawString(73, 647 - (i * 14), line.strip())
+  # Header - Name & Address
+  name_lines = str(data.get("name", "")).splitlines()
+  can.setFont("Times-Bold", 12)
+  if name_lines:
+      can.drawString(73, 656, name_lines[0].strip())
+  can.setFont("Times-Roman", 12)
+  for i, line in enumerate(name_lines[1:], start=1):
+      if line.strip():
+          can.drawString(73, 656 - (i * 14), line.strip())
 
-    # Dates
-    date = format_date_ddmmyyyy(data.get("date", ""))
-    from_date = format_date_ddmmyyyy(data.get("from_date", ""))
-    to_date = format_date_ddmmyyyy(data.get("to_date", ""))
-    can.setFont("Times-Roman", 11)
-    can.drawString(467, 711, date)
-    can.drawString(310, 542, from_date)
-    can.drawString(385, 542, to_date)
+  # Dates
+  date = format_date_ddmmyyyy(data.get("date", ""))
+  from_date = format_date_ddmmyyyy(data.get("from_date", ""))
+  to_date = format_date_ddmmyyyy(data.get("to_date", ""))
+  can.setFont("Times-Roman", 11)
+  can.drawString(467, 715, date)
+  can.drawString(310, 547, from_date)
+  can.drawString(385, 547, to_date)
 
-    # Charges & remarks
-    y_start = 477
-    step = 17
-    can.setFont("Times-Roman", 11)
-    for i, (charge, remark) in enumerate(charge_pairs()):
-        y = y_start - (i * step)
-        can.drawString(310, y, str(data.get(charge, "") or ""))
-        can.drawString(390, y, str(data.get(remark, "") or ""))
+  # ---- Dynamic Charges Table ----
+  charges = data.get("charges") or []
 
-    # Total
-    can.setFont("Times-Bold", 12)
-    can.drawString(295, 340, str(data.get("total", "") or ""))
+  # ✅ Filter out empty/zero charges
+  filtered_charges = [
+      ch for ch in charges
+      if (str(ch.get("type", "")).strip() != "" or str(ch.get("remark", "")).strip() != "")
+      and to_number(ch.get("amount", 0)) > 0
+  ]
 
-    can.save()
-    packet.seek(0)
-    return packet
+  # Build table data (header + rows + total)
+  table_data = [["SR", "PARTICULAR", "AMOUNT", "REMARK"]]
+  for i, ch in enumerate(filtered_charges, start=1):
+      table_data.append([
+          str(i),
+          str(ch.get("type", "")),
+          f"{to_number(ch.get('amount', 0)):.2f}",
+          str(ch.get("remark", "")),
+      ])
+  table_data.append(["", "TOTAL", f"{to_number(data.get('total', 0)):.2f}", ""])
 
-def fill_pdf(template_path, data):
+  # --- Fixed table layout ---
+  TABLE_LEFT = 60
+  TABLE_TOP_Y = 510
+  TABLE_WIDTHS = [40, 230, 90, 132]   # fixed column widths
+  ROW_HEIGHT = 18                     # fixed row height
+  FONT_SIZE_BODY = 10
+  FONT_SIZE_HEADER = 11
+
+  num_rows = len(table_data)
+
+  tbl = Table(table_data, colWidths=TABLE_WIDTHS, rowHeights=[ROW_HEIGHT] * num_rows)
+  tbl.setStyle(TableStyle([
+      ("GRID", (0,0), (-1,-1), 0.8, colors.black),
+      ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+      ("ALIGN", (0,0), (0,-1), "CENTER"),   # SR centered
+
+      # Header
+      ("FONTNAME", (0,0), (-1,0), "Times-Bold"),
+      ("FONTSIZE", (0,0), (-1,0), FONT_SIZE_HEADER),
+      ("BACKGROUND", (0,0), (-1,0), colors.white),
+      ("TEXTCOLOR", (0,0), (-1,0), colors.black),
+
+      # Body
+      ("FONTNAME", (0,1), (-1,-1), "Times-Roman"),
+      ("FONTSIZE", (0,1), (-1,-1), FONT_SIZE_BODY),
+
+      # TOTAL row
+      ("FONTNAME", (1,-1), (2,-1), "Times-Bold"),
+      ("ALIGN", (1,-1), (1,-1), "RIGHT"),
+      ("ALIGN", (2,1), (2,-1), "RIGHT"),
+      ("ALIGN", (2,-1), (2,-1), "RIGHT"),
+      ("BACKGROUND", (0,-1), (-1,-1), colors.white),
+      ("TEXTCOLOR", (0,-1), (-1,-1), colors.black),
+      ("SPAN", (0,-1), (0,-1)),
+  ]))
+
+  # Always draw starting from fixed top Y
+  table_height = num_rows * ROW_HEIGHT
+  table_bottom_y = TABLE_TOP_Y - table_height
+  tbl.wrapOn(can, TABLE_LEFT, table_bottom_y)
+  tbl.drawOn(can, TABLE_LEFT, table_bottom_y)
+
+  # --- Add Bank Details Note ---
+  note_text = """Please credit the expenses in our account
+  Account Name :- Sai Agro Inputs
+  Account No. :- 921020042670090
+  IFSC Code :- UTIB0000749
+  Bank :- Axis Bank
+  Branch :- Amankha Plot Road Akola"""
+
+  can.setFont("Times-Roman", 12)  # same as table body
+  text_x = TABLE_LEFT
+  text_y = table_bottom_y - 40    # 40 points gap below the table
+
+  for line in note_text.splitlines():
+      can.drawString(text_x, text_y, line)
+      text_y -= 14   # line spacing
+
+  can.save()
+  buf.seek(0)
+  return buf
+
+def fill_pdf_with_overlay(template_path, data):
     if not os.path.exists(template_path):
         raise FileNotFoundError(f"Template file '{template_path}' not found")
     with open(template_path, "rb") as f:
-        template_pdf = PdfReader(f)
-        overlay_pdf = PdfReader(create_overlay(data))
+        base_pdf = PdfReader(f)
+        overlay_pdf = PdfReader(create_overlay_pdf(data))
         writer = PdfWriter()
-        page = template_pdf.pages[0]
+        page = base_pdf.pages[0]
         page.merge_page(overlay_pdf.pages[0])
         writer.add_page(page)
         output = io.BytesIO()
@@ -283,162 +433,170 @@ def fill_pdf(template_path, data):
         output.seek(0)
         return output
 
-def compute_total(data_dict):
-    fields = [
-        "cf_charges", "godown_rent", "courier_charges", "electric_bill",
-        "internet_charges", "local_freight", "labour_charges", "hamali_charges"
-    ]
-    total = 0.0
-    for f in fields:
-        try:
-            total += float(data_dict.get(f) or 0)
-        except Exception:
-            pass
-    return round(total, 2)
-
-def insert_into_db(data):
-  try:
-      response = supabase.table("pdf_records").insert({
-          "name": data.get("name"),
-          "date": data.get("date"),
-          "from_date": data.get("from_date"),
-          "to_date": data.get("to_date"),
-          "cf_charges": safe_number(data.get("cf_charges")),
-          "godown_rent": safe_number(data.get("godown_rent")),
-          "courier_charges": safe_number(data.get("courier_charges")),
-          "electric_bill": safe_number(data.get("electric_bill")),
-          "internet_charges": safe_number(data.get("internet_charges")),
-          "local_freight": safe_number(data.get("local_freight")),
-          "labour_charges": safe_number(data.get("labour_charges")),
-          "hamali_charges": safe_number(data.get("hamali_charges")),
-          "total": safe_number(data.get("total")),
-      }).execute()
-      print("✅ Inserted into Supabase:", response)
-  except Exception as e:
-      print("❌ Supabase insert failed:", str(e))
-
-def update_db(record_id, data):
+# ----------------------------- DB helpers ----------------------------- #
+def insert_record(data):
+    """
+    data must contain: name, date, from_date, to_date, charges (list), total (float)
+    """
     payload = {
         "name": data.get("name"),
         "date": data.get("date"),
         "from_date": data.get("from_date"),
         "to_date": data.get("to_date"),
-        "cf_charges": safe_number(data.get("cf_charges")),
-        "godown_rent": safe_number(data.get("godown_rent")),
-        "courier_charges": safe_number(data.get("courier_charges")),
-        "electric_bill": safe_number(data.get("electric_bill")),
-        "internet_charges": safe_number(data.get("internet_charges")),
-        "local_freight": safe_number(data.get("local_freight")),
-        "labour_charges": safe_number(data.get("labour_charges")),
-        "hamali_charges": safe_number(data.get("hamali_charges")),
-        "cf_remarks": data.get("cf_remarks"),
-        "godown_remarks": data.get("godown_remarks"),
-        "courier_remarks": data.get("courier_remarks"),
-        "electric_remarks": data.get("electric_remarks"),
-        "internet_remarks": data.get("internet_remarks"),
-        "local_remarks": data.get("local_remarks"),
-        "labour_remarks": data.get("labour_remarks"),
-        "hamali_remarks": data.get("hamali_remarks"),
-        "total": safe_number(data.get("total")),
+        "charges": data.get("charges"),  # JSON array
+        "total": data.get("total"),
+    }
+    # Optional: keep old columns in case your table still has them (set null)
+    return supabase.table("pdf_records").insert(payload).execute()
+
+def update_record_db(record_id, data):
+    payload = {
+        "name": data.get("name"),
+        "date": data.get("date"),
+        "from_date": data.get("from_date"),
+        "to_date": data.get("to_date"),
+        "charges": data.get("charges"),
+        "total": data.get("total"),
     }
     return supabase.table("pdf_records").update(payload).eq("id", record_id).execute()
 
-def fetch_record(record_id):
-    return supabase.table("pdf_records").select("*").eq("id", record_id).single().execute().data
+def fetch_one(record_id):
+    res = supabase.table("pdf_records").select("*").eq("id", record_id).single().execute()
+    return res.data
 
 # ----------------------------- Routes ----------------------------- #
 @app.route("/", methods=["GET"])
 def form():
-    charge_fields = charge_pairs()
     context = {
         "title": "PDF Generator",
         "header": "📄 PDF Generator",
         "action_url": url_for("generate"),
         "submit_label": "Generate",
         "data": {},
-        "charge_fields": charge_fields,
         "is_create": True,
+        "charges_json": [],  # will be defaulted in JS if empty
     }
     return render_template_string(HTML_FORM, **context)
 
 @app.route("/generate", methods=["POST"])
 def generate():
-  data = {key: request.form[key] for key in request.form}
+    # Gather basic fields
+    name = request.form.get("name", "")
+    date = request.form.get("date", "")
+    from_date = request.form.get("from_date", "")
+    to_date = request.form.get("to_date", "")
 
-  charge_fields = [
-      "cf_charges", "godown_rent", "courier_charges", "electric_bill",
-      "internet_charges", "local_freight", "labour_charges", "hamali_charges"
-  ]
-  total = 0
-  for field in charge_fields:
-      try:
-          total += float(data.get(field, 0) or 0)
-      except ValueError:
-          pass
-  data["total"] = str(round(total, 2))
+    # Gather dynamic charges array
+    charges = normalize_charges_from_request(request.form)
+    total = compute_total_from_charges(charges)
 
-  insert_into_db(data)
+    # Build record
+    record = {
+        "name": name,
+        "date": date,
+        "from_date": from_date,
+        "to_date": to_date,
+        "charges": charges,
+        "total": total,
+    }
 
-  pdf_bytes = fill_pdf("template.pdf", data)
+    # Insert to DB (best-effort; do not fail PDF if DB fails)
+    try:
+        insert_record(record)
+    except Exception as e:
+        print("❌ Supabase insert failed:", e)
 
-  user_name = str(data.get("name", "document")).split("\n")[0].strip().replace(" ", "_")
-  filename = f"{user_name}.pdf"
+    # Build PDF
+    pdf_bytes = fill_pdf_with_overlay(TEMPLATE_PATH, record)
 
-  return send_file(pdf_bytes,
-                   as_attachment=True,
-                   download_name=filename,
-                   mimetype="application/pdf")
+    # File name
+    user_name = (name or "document").split("\n")[0].strip().replace(" ", "_")
+    filename = f"{user_name}.pdf"
+    return send_file(pdf_bytes, as_attachment=True, download_name=filename, mimetype="application/pdf")
 
-@app.route("/records", methods=["GET"])
 @app.route("/records", methods=["GET"])
 def records():
     try:
         response = supabase.table("pdf_records").select("*").order("id", desc=True).execute()
         rows = response.data or []
-        # Compute grand total
+        # Ensure total is computed for any legacy rows
+        for r in rows:
+            charges = migrate_row_to_charges_if_needed(r)
+            r["total"] = r.get("total") or compute_total_from_charges(charges)
         grand_total = sum(float(r.get("total") or 0) for r in rows)
     except Exception as e:
         print("❌ Failed to fetch from Supabase:", e)
-        rows, grand_total = [], 0
+        rows, grand_total = [], 0.0
     return render_template_string(HTML_RECORDS, title="Database Records", rows=rows, grand_total=grand_total)
-
 
 @app.route("/print/<int:record_id>", methods=["GET"])
 def print_record(record_id: int):
-    record = fetch_record(record_id)
+    record = fetch_one(record_id)
     if not record:
         return "Record not found", 404
-    # Ensure total is present/accurate
-    if not record.get("total"):
-        record["total"] = str(compute_total(record))
-    pdf_bytes = fill_pdf(TEMPLATE_PATH, record)
+
+    # Normalize for legacy rows
+    charges = migrate_row_to_charges_if_needed(record)
+    total = record.get("total") or compute_total_from_charges(charges)
+
+    record_for_pdf = {
+        "name": record.get("name", ""),
+        "date": record.get("date", ""),
+        "from_date": record.get("from_date", ""),
+        "to_date": record.get("to_date", ""),
+        "charges": charges,
+        "total": total,
+    }
+
+    pdf_bytes = fill_pdf_with_overlay(TEMPLATE_PATH, record_for_pdf)
     user_name = str(record.get("name", "document")).split("\n")[0].strip().replace(" ", "_") or f"record_{record_id}"
     filename = f"{user_name}.pdf"
     return send_file(pdf_bytes, as_attachment=True, download_name=filename, mimetype="application/pdf")
 
 @app.route("/edit/<int:record_id>", methods=["GET"])
 def edit_record(record_id: int):
-    record = fetch_record(record_id)
+    record = fetch_one(record_id)
     if not record:
         return "Record not found", 404
-    charge_fields = charge_pairs()
+
+    # Prepare charges JSON for the form bootstrap
+    charges = migrate_row_to_charges_if_needed(record)
     context = {
         "title": f"Edit Record #{record_id}",
         "header": f"✏️ Edit Record #{record_id}",
         "action_url": url_for("update_record", record_id=record_id),
         "submit_label": "Save Changes",
-        "data": record,
-        "charge_fields": charge_fields,
+        "data": {
+            "name": record.get("name", ""),
+            "date": record.get("date", ""),
+            "from_date": record.get("from_date", ""),
+            "to_date": record.get("to_date", ""),
+            "total": record.get("total") or compute_total_from_charges(charges),
+        },
         "is_create": False,
+        "charges_json": charges,
     }
     return render_template_string(HTML_FORM, **context)
 
 @app.route("/update/<int:record_id>", methods=["POST"])
 def update_record(record_id: int):
-    data = {key: request.form.get(key, "") for key in request.form}
-    data["total"] = str(compute_total(data))
+    # Gather fields
+    name = request.form.get("name", "")
+    date = request.form.get("date", "")
+    from_date = request.form.get("from_date", "")
+    to_date = request.form.get("to_date", "")
+    charges = normalize_charges_from_request(request.form)
+    total = compute_total_from_charges(charges)
+
     try:
-        update_db(record_id, data)
+        update_record_db(record_id, {
+            "name": name,
+            "date": date,
+            "from_date": from_date,
+            "to_date": to_date,
+            "charges": charges,
+            "total": total,
+        })
     except Exception as e:
         print("❌ Supabase update failed:", e)
     return redirect(url_for("records"))
@@ -451,7 +609,8 @@ def delete_record(record_id: int):
         print("❌ Supabase delete failed:", e)
     return redirect(url_for("records"))
 
-# ----------------------------- Replit run ----------------------------- #
+# ----------------------------- Local Dev (Replit) ----------------------------- #
+# Vercel will import app via WSGI from this module; running locally also works.
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
