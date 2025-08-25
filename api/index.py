@@ -36,7 +36,6 @@ BASE_HEAD = """
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' };</script>
-  <script>tailwind.config = { darkMode: 'class' };</script>
 </head>
 """
 
@@ -49,17 +48,11 @@ HTML_FORM = BASE_HEAD + """
         <a href="{{ url_for('records') }}" class="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700">View Records</a>
         <a href="{{ url_for('form') }}" class="px-4 py-2 bg-slate-600 rounded-lg hover:bg-slate-700">New</a>
       </div>
-      <h1 class="text-3xl font-bold text-green-400">{{ header }}</h1>
-      <div class="flex gap-2">
-        <a href="{{ url_for('records') }}" class="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700">View Records</a>
-        <a href="{{ url_for('form') }}" class="px-4 py-2 bg-slate-600 rounded-lg hover:bg-slate-700">New</a>
-      </div>
     </div>
     <form method="post" action="{{ action_url }}" class="space-y-6" id="bill-form">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <label class="block text-gray-300 font-medium mb-1">Name & Address</label>
-          <textarea name="name" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" rows="3" required>{{ data.get('name','') }}</textarea>
           <textarea name="name" class="w-full border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-green-400 bg-gray-700 text-white" rows="3" required>{{ data.get('name','') }}</textarea>
         </div>
         <div class="grid grid-cols-1 gap-6">
@@ -104,11 +97,7 @@ HTML_FORM = BASE_HEAD + """
       <div class="flex justify-center gap-4">
         <button type="submit" class="px-6 py-3 bg-green-600 text-white rounded-lg shadow hover:bg-green-700 transition">
           {{ submit_label }}
-          {{ submit_label }}
         </button>
-        <a href="{{ url_for('records') }}" class="px-6 py-3 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition">
-          View Records
-        </a>
         <a href="{{ url_for('records') }}" class="px-6 py-3 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition">
           View Records
         </a>
